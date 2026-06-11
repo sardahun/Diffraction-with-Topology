@@ -132,10 +132,10 @@
 
             for (let py = 0; py < height; py++) {
                 // 중심이 (0,0)인 상호 공간 좌표계 전사
-                const y = (py - height / 2) * 0.15; 
+                const y = (py - height / 2) * 0.9; 
 
                 for (let px = 0; px < width; px++) {
-                    const x = (px - width / 2) * 0.15;
+                    const x = (px - width / 2) * 0.9;
 
                     // 1. 단일 슬릿에 의한 포발선 함수 (Envelope)
                     const factorX = Math.PI * holeSize * x;
