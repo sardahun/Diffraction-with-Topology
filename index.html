@@ -2,12 +2,12 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>2D 격자 위상 및 회절 시뮬레이터 (T² vs 유한 격자)</title>
+    <title>고해상도 2D 격자 위상 및 간섭 스펙트럼 시뮬레이터</title>
     <style>
         body {
             margin: 0;
-            background-color: #050505;
-            color: #e0e0e0;
+            background-color: #030303;
+            color: #f0f0f0;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             display: flex;
             flex-direction: column;
@@ -17,15 +17,15 @@
             overflow: hidden;
         }
         #controls {
-            background: rgba(20, 20, 20, 0.9);
+            background: rgba(15, 15, 15, 0.95);
             padding: 15px 25px;
-            border-radius: 10px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            border-radius: 12px;
+            box-shadow: 0 4px 30px rgba(0,0,0,0.7);
             display: flex;
-            gap: 20px;
+            gap: 25px;
             align-items: center;
             margin-bottom: 15px;
-            border: 1px solid #333;
+            border: 1px solid #292929;
             z-index: 10;
         }
         .control-group {
@@ -34,27 +34,30 @@
             gap: 5px;
         }
         label {
-            font-size: 12px;
+            font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 1px;
-            color: #aaa;
+            color: #00ffcc;
+            font-weight: bold;
         }
         select, input {
-            background: #222;
-            border: 1px solid #444;
+            background: #111;
+            border: 1px solid #333;
             color: #fff;
-            padding: 5px 10px;
-            border-radius: 5px;
+            padding: 6px 12px;
+            border-radius: 6px;
             outline: none;
+            font-size: 13px;
         }
         input[type="range"] {
             padding: 0;
-            width: 120px;
+            width: 140px;
+            accent-color: #00ffcc;
         }
         #canvas-container {
             position: relative;
-            box-shadow: 0 0 40px rgba(0, 255, 150, 0.1);
-            border-radius: 8px;
+            box-shadow: 0 0 50px rgba(0, 255, 200, 0.15);
+            border-radius: 10px;
             overflow: hidden;
             border: 1px solid #222;
         }
@@ -75,76 +78,44 @@
             </select>
         </div>
         <div class="control-group" id="grid-size-group">
-            <label>격자 크기 (N x N): <span id="n-val">7</span></label>
-            <input type="range" id="latticeN" min="2" max="25" value="7" step="1" oninput="updateSimulation()">
+            <label>격자 대형 수 (N x N): <span id="n-val">15</span></label>
+            <input type="range" id="latticeN" min="2" max="80" value="15" step="1" oninput="updateSimulation()">
         </div>
         <div class="control-group">
-            <label>파장 (Wavelength)</label>
-            <input type="range" id="wavelength" min="400" max="700" value="532" step="10" oninput="updateSimulation()">
+            <label>격자 간격 (a)</label>
+            <input type="range" id="latticeA" min="2" max="30" value="12" step="0.5" oninput="updateSimulation()">
         </div>
         <div class="control-group">
-            <label>격자 상수 (a)</label>
-            <input type="range" id="latticeA" min="10" max="50" value="30" step="1" oninput="updateSimulation()">
+            <label>스펙트럼 감도 (Gain)</label>
+            <input type="range" id="gain" min="0.5" max="5" value="2" step="0.1" oninput="updateSimulation()">
         </div>
     </div>
 
     <div id="canvas-container">
-        <canvas id="diffractionCanvas" width="600" height="600"></canvas>
+        <canvas id="diffractionCanvas" width="700" height="700"></canvas>
     </div>
 
     <script>
         const canvas = document.getElementById('diffractionCanvas');
         const ctx = canvas.getContext('2d');
 
-        // Sinc 함수 정의 (정밀한 회절 수식용)
+        // 엄밀한 수식 연산을 위한 Sinc 함수
         function sinc(x) {
             if (Math.abs(x) < 1e-8) return 1.0;
             return Math.sin(x) / x;
         }
 
-        // 파장에 따른 레이저 가시광선 RGB 매핑 함수 (물리적 색상 구현)
-        function wavelengthToRGB(wl) {
-            let r, g, b;
-            if (wl >= 380 && wl < 440) {
-                r = -(wl - 440) / (440 - 380); g = 0.0; b = 1.0;
-            } else if (wl >= 440 && wl < 490) {
-                r = 0.0; g = (wl - 440) / (490 - 440); b = 1.0;
-            } else if (wl >= 490 && wl < 510) {
-                r = 0.0; g = 1.0; b = -(wl - 510) / (510 - 490);
-            } else if (wl >= 510 && wl < 580) {
-                r = (wl - 510) / (580 - 510); g = 1.0; b = 0.0;
-            } else if (wl >= 580 && wl < 645) {
-                r = 1.0; g = -(wl - 645) / (645 - 580); b = 0.0;
-            } else if (wl >= 645 && wl <= 780) {
-                r = 1.0; g = 0.0; b = 0.0;
-            } else {
-                r = 0.0; g = 0.0; b = 0.0;
-            }
-            // Intensity 분위 감쇄 처리
-            let factor;
-            if (wl >= 380 && wl < 420) factor = 0.3 + 0.7*(wl - 380) / (420 - 380);
-            else if (wl >= 420 && wl < 701) factor = 1.0;
-            else if (wl >= 701 && wl <= 780) factor = 0.3 + 0.7*(780 - wl) / (780 - 701);
-            else factor = 0.0;
-
-            return {
-                r: Math.round(r * factor * 255),
-                g: Math.round(g * factor * 255),
-                b: Math.round(b * factor * 255)
-            };
-        }
-
         function updateSimulation() {
             const mode = document.getElementById('mode').value;
             const N = parseInt(document.getElementById('latticeN').value);
-            const wl = parseFloat(document.getElementById('wavelength').value);
             const a = parseFloat(document.getElementById('latticeA').value);
+            const gain = parseFloat(document.getElementById('gain').value);
             
-            document.getElementById('n-val').innerText = N;
+            document.getElementById('n-val').innerText = `${N}x${N}`;
             
             const nGroup = document.getElementById('grid-size-group');
             if (mode === 'infinite') {
-                nGroup.style.opacity = '0.3';
+                nGroup.style.opacity = '0.2';
                 nGroup.style.pointerEvents = 'none';
             } else {
                 nGroup.style.opacity = '1';
@@ -155,71 +126,83 @@
             const height = canvas.height;
             const imgData = ctx.createImageData(width, height);
             
-            const laserColor = wavelengthToRGB(wl);
-            
-            // 물리 상수 및 스케일링 설정
-            const L = 1000; // 가상 스크린 거리
-            const k = (2 * Math.PI) / (wl * 1e-6); // 파수 (Wave number)
-            const holeSize = a * 0.4; // 격자 안의 정사각형 구멍 크기 (b)
+            // 물리 스케일링 상수 설정
+            const wl_ref = 0.5; // 기준 등가 파장
+            const holeSize = a * 0.35; // 격자점 자체의 구멍 크기 (b)
 
             for (let py = 0; py < height; py++) {
-                // 중심을 (0,0) 좌표계로 변환
-                const y = (py - height / 2) * 0.1; 
+                // 중심이 (0,0)인 상호 공간 좌표계 전사
+                const y = (py - height / 2) * 0.15; 
 
                 for (let px = 0; px < width; px++) {
-                    const x = (px - width / 2) * 0.1;
+                    const x = (px - width / 2) * 0.15;
 
-                    let intensity = 0;
+                    // 1. 단일 슬릿에 의한 포발선 함수 (Envelope)
+                    const factorX = Math.PI * holeSize * x;
+                    const factorY = Math.PI * holeSize * y;
+                    const envelope = Math.pow(sinc(factorX) * sinc(factorY), 2);
 
-                    // 1. 단일 구멍에 의한 프라운호퍼 회절 (Envelope function)
-                    const factorX = (Math.PI * holeSize * x) / (wl * 0.1);
-                    const factorY = (Math.PI * holeSize * y) / (wl * 0.1);
-                    const singleDiffraction = Math.pow(sinc(factorX) * sinc(factorY), 2);
+                    let intensityX = 0;
+                    let intensityY = 0;
+                    let totalIntensity = 0;
+
+                    // 고주파 알록달록한 위상 무늬 생성을 위한 주파수 성분 변수화
+                    const phaseX = Math.PI * a * x;
+                    const phaseY = Math.PI * a * y;
 
                     if (mode === 'finite') {
-                        // 2-A. 유한 격자: 다중 슬릿 상쇄/보강 간섭 수학식 (근사 없음)
-                        const phaseX = (Math.PI * a * x) / (wl * 0.1);
-                        const phaseY = (Math.PI * a * y) / (wl * 0.1);
+                        // 2-A. 유한 격자: 다중 슬릿 간섭 정밀식
+                        const interX = Math.abs(Math.sin(phaseX)) < 1e-5 ? N : Math.sin(N * phaseX) / Math.sin(phaseX);
+                        const interY = Math.abs(Math.sin(phaseY)) < 1e-5 ? N : Math.sin(N * phaseY) / Math.sin(phaseY);
                         
-                        const interferenceX = Math.abs(Math.sin(phaseX)) < 1e-5 ? N : Math.sin(N * phaseX) / Math.sin(phaseX);
-                        const interferenceY = Math.abs(Math.sin(phaseY)) < 1e-5 ? N : Math.sin(N * phaseY) / Math.sin(phaseY);
-                        
-                        // 정규화된 총 광도
-                        intensity = singleDiffraction * Math.pow((interferenceX / N) * (interferenceY / N), 2);
-
+                        intensityX = Math.pow(interX / N, 2);
+                        intensityY = Math.pow(interY / N, 2);
+                        totalIntensity = envelope * intensityX * intensityY;
                     } else {
-                        // 2-B. 무한 격자 (T² 위상 구조): 불연속적인 라우에(Laue) 조건 점들만 추출
-                        // 수학적으로 무한 격자는 상호 공간의 고대칭점(Δx = n * λL/a)에서만 델타 함수로 존재함
-                        const unitX = (x * a) / (wl * 0.1);
-                        const unitY = (y * a) / (wl * 0.1);
+                        // 2-B. 무한 격자 (T² 위상 공간): 이산 고대칭 지점 Laue 조건 해석
+                        const unitX = (x * a);
+                        const unitY = (y * a);
                         
                         const deltaX = Math.abs(unitX - Math.round(unitX));
                         const deltaY = Math.abs(unitY - Math.round(unitY));
                         
-                        // 완벽한 이산 고대칭 지점 근방에만 무한대 플럭스 배치 (시각화를 위해 약간의 가우시안 폭 부여)
                         if (deltaX < 0.08 && deltaY < 0.08) {
-                            const peakX = Math.exp(-Math.pow(deltaX/0.03, 2));
-                            const peakY = Math.exp(-Math.pow(deltaY/0.03, 2));
-                            intensity = singleDiffraction * peakX * peakY;
-                        } else {
-                            intensity = 0;
+                            intensityX = Math.exp(-Math.pow(deltaX/0.03, 2));
+                            intensityY = Math.exp(-Math.pow(deltaY/0.03, 2));
+                            totalIntensity = envelope * intensityX * intensityY;
                         }
                     }
 
-                    // 감마 보정 및 스크린 픽셀 색상 대입
+                    // 픽셀 인덱스 계산
                     const idx = (py * width + px) * 4;
-                    const brightness = Math.min(1, intensity * 1.5); // 가시성을 위한 부스팅
-                    
-                    imgData.data[idx] = Math.pow(brightness, 0.7) * laserColor.r;     // R
-                    imgData.data[idx + 1] = Math.pow(brightness, 0.7) * laserColor.g; // G
-                    imgData.data[idx + 2] = Math.pow(brightness, 0.7) * laserColor.b; // B
-                    imgData.data[idx + 3] = 255;                                      // Alpha
+
+                    // [알록달록한 위상 간섭 무늬 변수 지정]
+                    // 빛의 세기(totalIntensity)뿐만 아니라, 공간 좌표의 간섭 주기(phase) 자체를 색상 정보에 대입
+                    // 이를 통해 하나의 무늬 안에서도 보강/상쇄 간섭 경계가 등고선처럼 다채로운 색으로 분리됨
+                    let r_comp = totalIntensity * (0.5 + 0.5 * Math.sin(phaseX));
+                    let g_comp = totalIntensity * (0.5 + 0.5 * Math.cos(phaseY));
+                    let b_comp = totalIntensity * (0.5 + 0.5 * Math.sin(phaseX + phaseY));
+
+                    // 전체 Gain 및 감마(보정) 처리
+                    let r = Math.min(255, Math.pow(r_comp * gain, 0.7) * 255);
+                    let g = Math.min(255, Math.pow(g_comp * gain, 0.7) * 255);
+                    let b = Math.min(255, Math.pow(b_comp * gain, 0.7) * 255);
+
+                    // 완전히 어두운 곳(Extinction 지점)의 기하학적 윤곽을 보기 좋게 만들기 위한 베이스 휘도 추가
+                    if (totalIntensity < 0.005) {
+                        r += 5; g += 5; b += 15; // 미세한 심해 청색 베이스로 구조 가시화
+                    }
+
+                    imgData.data[idx] = r;
+                    imgData.data[idx + 1] = g;
+                    imgData.data[idx + 2] = b;
+                    imgData.data[idx + 3] = 255;
                 }
             }
             ctx.putImageData(imgData, 0, 0);
         }
 
-        // 초기 실행
+        // 초기 구동
         updateSimulation();
     </script>
 </body>
