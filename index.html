@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>정밀 2D 격자 위상 및 간섭 스펙트럼 시뮬레이터 (스케일 최종 수정본)</title>
+    <title>정밀 2D 유한 격자 위상 및 간섭 스펙트럼 시뮬레이터</title>
     <style>
         body {
             margin: 0;
@@ -71,19 +71,12 @@
 
     <div id="controls">
         <div class="control-group">
-            <label>경계 조건 (Boundary)</label>
-            <select id="mode" onchange="updateSimulation()">
-                <option value="finite">유한 격자 (Finite Lattice)</option>
-                <option value="infinite">무한 격자 (Infinite Torus T²)</option>
-            </select>
-        </div>
-        <div class="control-group" id="grid-size-group">
-            <label>격자 대형 수 (N x N): <span id="n-val">15</span></label>
-            <input type="range" id="latticeN" min="2" max="80" value="15" step="1" oninput="updateSimulation()">
+            <label>격자 대형 수 (N x N): <span id="n-val">20</span></label>
+            <input type="range" id="latticeN" min="2" max="100" value="20" step="1" oninput="updateSimulation()">
         </div>
         <div class="control-group">
             <label>격자 간격 (a)</label>
-            <input type="range" id="latticeA" min="2" max="30" value="15" step="0.5" oninput="updateSimulation()">
+            <input type="range" id="latticeA" min="5" max="50" value="20" step="0.5" oninput="updateSimulation()">
         </div>
         <div class="control-group">
             <label>스펙트럼 감도 (Gain)</label>
@@ -99,36 +92,27 @@
         const canvas = document.getElementById('diffractionCanvas');
         const ctx = canvas.getContext('2d');
 
+        // 정밀한 회절 수식용 싱크 함수
         function sinc(x) {
             if (Math.abs(x) < 1e-8) return 1.0;
             return Math.sin(x) / x;
         }
 
         function updateSimulation() {
-            const mode = document.getElementById('mode').value;
             const N = parseInt(document.getElementById('latticeN').value);
             const a = parseFloat(document.getElementById('latticeA').value);
             const gain = parseFloat(document.getElementById('gain').value);
             
             document.getElementById('n-val').innerText = `${N}x${N}`;
-            
-            const nGroup = document.getElementById('grid-size-group');
-            if (mode === 'infinite') {
-                nGroup.style.opacity = '0.2';
-                nGroup.style.pointerEvents = 'none';
-            } else {
-                nGroup.style.opacity = '1';
-                nGroup.style.pointerEvents = 'auto';
-            }
 
             const width = canvas.width;
             const height = canvas.height;
             const imgData = ctx.createImageData(width, height);
             
-            // 격자 구멍 비율 안정화
+            // 격자 구멍 비율 고정
             const holeSize = 1.2; 
 
-            // 복잡한 동적 팩터 제거하고, 무늬가 촘촘히 꽉 차도록 캔버스 좌표 투사율을 0.05로 최적화 고정
+            // 복잡한 팩터 제거하고, 무늬가 촘촘히 꽉 차도록 캔버스 좌표 투사율을 0.05로 최적화 고정
             const scaleFactor = 0.05; 
 
             for (let py = 0; py < height; py++) {
@@ -137,53 +121,36 @@
                 for (let px = 0; px < width; px++) {
                     const fX = (px - width / 2) * scaleFactor;
 
-                    // 1. 단일 구멍 회절 (Envelope)
+                    // 1. 단일 슬릿 포발선 함수 (Envelope) - X, Y축 회절 곱하기
                     const factorX = Math.PI * holeSize * fX;
                     const factorY = Math.PI * holeSize * fY;
                     const envelope = Math.pow(sinc(factorX) * sinc(factorY), 2);
 
-                    let intensityX = 0;
-                    let intensityY = 0;
-                    let totalIntensity = 0;
-
-                    // 격자 간격(a)에 비례하여 위상 주기가 완벽하게 변하도록 직결
+                    // 격자 간격(a)에 비례하여 위상 주기가 선명하게 변하도록 직결
                     const phaseX = Math.PI * a * fX * 0.2;
                     const phaseY = Math.PI * a * fY * 0.2;
 
-                    if (mode === 'finite') {
-                        // 유한 격자 맥스웰-프라운호퍼 간섭 수식
-                        const interX = Math.abs(Math.sin(phaseX)) < 1e-5 ? N : Math.sin(N * phaseX) / Math.sin(phaseX);
-                        const interY = Math.abs(Math.sin(phaseY)) < 1e-5 ? N : Math.sin(N * phaseY) / Math.sin(phaseY);
-                        
-                        intensityX = Math.pow(interX / N, 2);
-                        intensityY = Math.pow(interY / N, 2);
-                        totalIntensity = envelope * intensityX * intensityY;
-                    } else {
-                        // 무한 격자 (T²): 라우에 조건에 맞는 이산 고대칭 점 추출
-                        const deltaX = Math.abs((fX * a * 0.2) - Math.round(fX * a * 0.2));
-                        const deltaY = Math.abs((fY * a * 0.2) - Math.round(fY * a * 0.2));
-                        
-                        if (deltaX < 0.18 && deltaY < 0.18) {
-                            intensityX = Math.exp(-Math.pow(deltaX/0.06, 2));
-                            intensityY = Math.exp(-Math.pow(deltaY/0.06, 2));
-                            totalIntensity = envelope * intensityX * intensityY;
-                        }
-                    }
+                    // 2. 유한 격자 다중 슬릿 간섭 정밀식
+                    const interX = Math.abs(Math.sin(phaseX)) < 1e-5 ? N : Math.sin(N * phaseX) / Math.sin(phaseX);
+                    const interY = Math.abs(Math.sin(phaseY)) < 1e-5 ? N : Math.sin(N * phaseY) / Math.sin(phaseY);
+                    
+                    let totalIntensity = envelope * Math.pow((interX / N) * (interY / N), 2);
 
                     const idx = (py * width + px) * 4;
 
-                    // 알록달록한 위상 간섭 무늬 컬러 채널 매핑
+                    // [X, Y축 위상차를 R, G, B 채널에 매핑하여 알록달록한 위상 무늬 생성]
                     let r_comp = totalIntensity * (0.5 + 0.5 * Math.sin(phaseX));
                     let g_comp = totalIntensity * (0.5 + 0.5 * Math.cos(phaseY));
                     let b_comp = totalIntensity * (0.5 + 0.5 * Math.sin(phaseX + phaseY));
 
+                    // 감도 및 가시성 보정
                     let r = Math.min(255, Math.pow(r_comp * gain, 0.7) * 255);
                     let g = Math.min(255, Math.pow(g_comp * gain, 0.7) * 255);
                     let b = Math.min(255, Math.pow(b_comp * gain, 0.7) * 255);
 
-                    // 완전 상쇄 지점(Extinction) 배경광 처리
-                    if (totalIntensity < 0.002) {
-                        r += 12; g += 8; b += 25; 
+                    // 완전 상쇄 지점(Extinction 지점) 가시화용 배경광
+                    if (totalIntensity < 0.003) {
+                        r += 12; g += 9; b += 28; 
                     }
 
                     imgData.data[idx] = r;
