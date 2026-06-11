@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>고해상도 2D 격자 위상 및 간섭 스펙트럼 시뮬레이터</title>
+    <title>정밀 2D 격자 위상 및 간섭 스펙트럼 시뮬레이터</title>
     <style>
         body {
             margin: 0;
@@ -83,11 +83,11 @@
         </div>
         <div class="control-group">
             <label>격자 간격 (a)</label>
-            <input type="range" id="latticeA" min="2" max="30" value="12" step="0.5" oninput="updateSimulation()">
+            <input type="range" id="latticeA" min="2" max="30" value="10" step="0.5" oninput="updateSimulation()">
         </div>
         <div class="control-group">
             <label>스펙트럼 감도 (Gain)</label>
-            <input type="range" id="gain" min="0.5" max="5" value="2" step="0.1" oninput="updateSimulation()">
+            <input type="range" id="gain" min="0.5" max="5" value="2.5" step="0.1" oninput="updateSimulation()">
         </div>
     </div>
 
@@ -99,7 +99,7 @@
         const canvas = document.getElementById('diffractionCanvas');
         const ctx = canvas.getContext('2d');
 
-        // 엄밀한 수식 연산을 위한 Sinc 함수
+        // 엄밀한 전자기파 회절 수식 계산용 싱크 함수
         function sinc(x) {
             if (Math.abs(x) < 1e-8) return 1.0;
             return Math.sin(x) / x;
@@ -113,6 +113,7 @@
             
             document.getElementById('n-val').innerText = `${N}x${N}`;
             
+            // 무한 격자 모드일 때는 N 조절 비활성화
             const nGroup = document.getElementById('grid-size-group');
             if (mode === 'infinite') {
                 nGroup.style.opacity = '0.2';
@@ -126,32 +127,35 @@
             const height = canvas.height;
             const imgData = ctx.createImageData(width, height);
             
-            // 물리 스케일링 상수 설정
-            const wl_ref = 0.5; // 기준 등가 파장
-            const holeSize = a * 0.35; // 격자점 자체의 구멍 크기 (b)
+            // 격자 구멍 비율 안정화
+            const holeSize = a * 0.4; 
+
+            // 격자 상수(a)에 반비례하여 화면 배율이 최적화되도록 스케일 팩터 동적 계산 (중요!)
+            // 이 수식 덕분에 a가 작아져도 무늬가 화면 밖으로 터지지 않고 완벽한 크기를 유지합니다.
+            const scaleFactor = 0.25 / a; 
 
             for (let py = 0; py < height; py++) {
-                // 중심이 (0,0)인 상호 공간 좌표계 전사
-                const y = (py - height / 2) * 0.02; 
+                // 중심이 (0,0)인 2차원 상호 공간 주파수(f) 성분 매핑
+                const fY = (py - height / 2) * scaleFactor; 
 
                 for (let px = 0; px < width; px++) {
-                    const x = (px - width / 2) * 0.02;
+                    const fX = (px - width / 2) * scaleFactor;
 
-                    // 1. 단일 슬릿에 의한 포발선 함수 (Envelope)
-                    const factorX = Math.PI * holeSize * x;
-                    const factorY = Math.PI * a * x;
+                    // 1. 단일 정사각형 구멍에 의한 X, Y축 회절 포발선 (Envelope)
+                    const factorX = Math.PI * holeSize * fX;
+                    const factorY = Math.PI * holeSize * fY;
                     const envelope = Math.pow(sinc(factorX) * sinc(factorY), 2);
 
                     let intensityX = 0;
                     let intensityY = 0;
                     let totalIntensity = 0;
 
-                    // 고주파 알록달록한 위상 무늬 생성을 위한 주파수 성분 변수화
-                    const phaseX = Math.PI * a * x;
-                    const phaseY = Math.PI * a * y;
+                    // 2차원 간섭 무늬 주기를 결정하는 X, Y 위상 변수
+                    const phaseX = Math.PI * a * fX;
+                    const phaseY = Math.PI * a * fY;
 
                     if (mode === 'finite') {
-                        // 2-A. 유한 격자: 다중 슬릿 간섭 정밀식
+                        // [유한 격자 복사 조건] 맥스웰-프라운호퍼 간섭 정밀 수식
                         const interX = Math.abs(Math.sin(phaseX)) < 1e-5 ? N : Math.sin(N * phaseX) / Math.sin(phaseX);
                         const interY = Math.abs(Math.sin(phaseY)) < 1e-5 ? N : Math.sin(N * phaseY) / Math.sin(phaseY);
                         
@@ -159,38 +163,33 @@
                         intensityY = Math.pow(interY / N, 2);
                         totalIntensity = envelope * intensityX * intensityY;
                     } else {
-                        // 2-B. 무한 격자 (T² 위상 공간): 이산 고대칭 지점 Laue 조건 해석
-                        const unitX = (x * a);
-                        const unitY = (y * a);
+                        // [무한 격자 조건] Torus(T²) 상의 이산 고대칭 지점 라우에(Laue) 정수 조건식
+                        const deltaX = Math.abs(fX * a - Math.round(fX * a));
+                        const deltaY = Math.abs(fY * a - Math.round(fY * a));
                         
-                        const deltaX = Math.abs(unitX - Math.round(unitX));
-                        const deltaY = Math.abs(unitY - Math.round(unitY));
-                        
-                        if (deltaX < 0.08 && deltaY < 0.08) {
-                            intensityX = Math.exp(-Math.pow(deltaX/0.03, 2));
-                            intensityY = Math.exp(-Math.pow(deltaY/0.03, 2));
+                        // 완벽한 위상 불변 점들의 윤곽을 선명하게 픽킹
+                        if (deltaX < 0.15 && deltaY < 0.15) {
+                            intensityX = Math.exp(-Math.pow(deltaX/0.05, 2));
+                            intensityY = Math.exp(-Math.pow(deltaY/0.05, 2));
                             totalIntensity = envelope * intensityX * intensityY;
                         }
                     }
 
-                    // 픽셀 인덱스 계산
                     const idx = (py * width + px) * 4;
 
-                    // [알록달록한 위상 간섭 무늬 변수 지정]
-                    // 빛의 세기(totalIntensity)뿐만 아니라, 공간 좌표의 간섭 주기(phase) 자체를 색상 정보에 대입
-                    // 이를 통해 하나의 무늬 안에서도 보강/상쇄 간섭 경계가 등고선처럼 다채로운 색으로 분리됨
+                    // [X, Y축 간섭 위상차를 R, G, B 독립 채널에 매핑하여 알록달록한 스펙트럼 생성]
                     let r_comp = totalIntensity * (0.5 + 0.5 * Math.sin(phaseX));
                     let g_comp = totalIntensity * (0.5 + 0.5 * Math.cos(phaseY));
                     let b_comp = totalIntensity * (0.5 + 0.5 * Math.sin(phaseX + phaseY));
 
-                    // 전체 Gain 및 감마(보정) 처리
+                    // 감도(Gain) 및 인간의 시각 특성 감마 보정
                     let r = Math.min(255, Math.pow(r_comp * gain, 0.7) * 255);
                     let g = Math.min(255, Math.pow(g_comp * gain, 0.7) * 255);
                     let b = Math.min(255, Math.pow(b_comp * gain, 0.7) * 255);
 
-                    // 완전히 어두운 곳(Extinction 지점)의 기하학적 윤곽을 보기 좋게 만들기 위한 베이스 휘도 추가
-                    if (totalIntensity < 0.005) {
-                        r += 5; g += 5; b += 15; // 미세한 심해 청색 베이스로 구조 가시화
+                    // 완전 소멸 지점(Extinction / 위상학적 특이점)의 기하학적 형태를 추적하기 위한 미세 배경광
+                    if (totalIntensity < 0.002) {
+                        r += 10; g += 7; b += 22; 
                     }
 
                     imgData.data[idx] = r;
@@ -202,7 +201,7 @@
             ctx.putImageData(imgData, 0, 0);
         }
 
-        // 초기 구동
+        // 시뮬레이터 즉시 구동
         updateSimulation();
     </script>
 </body>
