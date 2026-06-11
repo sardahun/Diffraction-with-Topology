@@ -2,167 +2,264 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>정밀 2D 유한 격자 위상 및 간섭 스펙트럼 시뮬레이터</title>
+    <title>2D 격자 위상 및 D₄ 대칭 스펙트럼 시뮬레이터 (최적화 버전)</title>
     <style>
-        body {
+        * {
+            box-sizing: border-box;
             margin: 0;
-            background-color: #030303;
-            color: #f0f0f0;
+            padding: 0;
+        }
+        body {
+            background-color: #030408;
+            color: #f0f3f8;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
             height: 100vh;
+            width: 100vw;
             overflow: hidden;
         }
-        #controls {
-            background: rgba(15, 15, 15, 0.95);
-            padding: 15px 25px;
-            border-radius: 12px;
-            box-shadow: 0 4px 30px rgba(0,0,0,0.7);
+        #sidebar {
+            width: 360px;
+            background: #0b0d16;
+            border-right: 1px solid #1e2438;
+            padding: 25px 20px;
             display: flex;
-            gap: 25px;
-            align-items: center;
-            margin-bottom: 15px;
-            border: 1px solid #292929;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
             z-index: 10;
         }
+        #main-display {
+            flex: 1;
+            background-color: #000003;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            padding: 20px;
+        }
+        h1 {
+            font-size: 16px;
+            color: #00ffcc;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #1e2438;
+            padding-bottom: 10px;
+        }
         .control-group {
+            background: #111422;
+            border: 1px solid #1e2438;
+            border-radius: 8px;
+            padding: 14px;
             display: flex;
             flex-direction: column;
-            gap: 5px;
+            gap: 8px;
         }
         label {
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: #00ffcc;
-            font-weight: bold;
+            font-size: 12px;
+            color: #a0aec0;
+            display: flex;
+            justify-content: space-between;
+            font-weight: 600;
         }
-        select, input {
-            background: #111;
-            border: 1px solid #333;
+        .value-display {
+            color: #00ffcc;
+            font-family: monospace;
+        }
+        input[type="range"], select {
+            width: 100%;
+            background: #07090f;
+            border: 1px solid #232b44;
             color: #fff;
-            padding: 6px 12px;
-            border-radius: 6px;
+            padding: 6px;
+            border-radius: 4px;
             outline: none;
-            font-size: 13px;
         }
         input[type="range"] {
-            padding: 0;
-            width: 140px;
+            height: 6px;
             accent-color: #00ffcc;
+            cursor: pointer;
         }
         #canvas-container {
-            position: relative;
-            box-shadow: 0 0 50px rgba(0, 255, 200, 0.15);
-            border-radius: 10px;
-            overflow: hidden;
-            border: 1px solid #222;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         canvas {
-            display: block;
+            border: 1px solid #1a2035;
+            box-shadow: 0 0 40px rgba(0, 255, 200, 0.05);
             background: #000;
         }
     </style>
 </head>
 <body>
 
-    <div id="controls">
-        <div class="control-group">
-            <label>격자 대형 수 (N x N): <span id="n-val">20</span></label>
-            <input type="range" id="latticeN" min="2" max="100" value="20" step="1" oninput="updateSimulation()">
+    <div id="sidebar">
+        <div>
+            <h1>2D 유한 격자 광학 스펙트럼</h1>
+            <p style="font-size: 11px; color:#526488; margin-top:4px;">Fraunhofer Diffraction Solver</p>
         </div>
+        
         <div class="control-group">
-            <label>격자 간격 (a)</label>
-            <input type="range" id="latticeA" min="5" max="50" value="20" step="0.5" oninput="updateSimulation()">
+            <label>격자 배열 수 (N × N)<span id="n-display" class="value-display">-</span></label>
+            <input type="range" id="paramN" min="2" max="60" value="12">
         </div>
+        
         <div class="control-group">
-            <label>스펙트럼 감도 (Gain)</label>
-            <input type="range" id="gain" min="0.5" max="5" value="2.5" step="0.1" oninput="updateSimulation()">
+            <label>격자 간격 / 상수 (a)<span id="a-display" class="value-display">-</span></label>
+            <input type="range" id="paramA" min="4" max="40" value="15" step="0.5">
+        </div>
+        
+        <div class="control-group">
+            <label>역공간 축척 (Zoom)<span id="zoom-display" class="value-display">-</span></label>
+            <input type="range" id="paramZoom" min="0.2" max="3.0" value="1.0" step="0.05">
+        </div>
+        
+        <div class="control-group">
+            <label>컬러 렌더링 모드</label>
+            <select id="colorMode">
+                <option value="spectral">Rainbow Topology (위상 무지개)</option>
+                <option value="d4_accent">D₄ Symmetry (8차 대칭 강조)</option>
+            </select>
+        </div>
+        
+        <div class="control-group">
+            <label>밝기 부스팅 (Gain)<span id="gain-display" class="value-display">-</span></label>
+            <input type="range" id="paramGain" min="0.5" max="5.0" value="2.5" step="0.1">
         </div>
     </div>
 
-    <div id="canvas-container">
-        <canvas id="diffractionCanvas" width="700" height="700"></canvas>
+    <div id="main-display">
+        <div id="canvas-container">
+            <canvas id="opticsCanvas" width="800" height="800"></canvas>
+        </div>
     </div>
 
     <script>
-        const canvas = document.getElementById('diffractionCanvas');
+        const canvas = document.getElementById('opticsCanvas');
         const ctx = canvas.getContext('2d');
 
-        // 정밀한 회절 수식용 싱크 함수
+        // 엄밀한 수치 해석용 싱크 함수
         function sinc(x) {
-            if (Math.abs(x) < 1e-8) return 1.0;
+            if (Math.abs(x) < 1e-6) return 1.0;
             return Math.sin(x) / x;
         }
 
-        function updateSimulation() {
-            const N = parseInt(document.getElementById('latticeN').value);
-            const a = parseFloat(document.getElementById('latticeA').value);
-            const gain = parseFloat(document.getElementById('gain').value);
+        // 고속 HSV to RGB 변환
+        function hsvToRgb(h, s, v) {
+            let r, g, b;
+            let i = Math.floor(h * 6);
+            let f = h * 6 - i;
+            let p = v * (1 - s);
+            let q = v * (1 - f * s);
+            let t = v * (1 - (1 - f) * s);
+            switch (i % 6) {
+                case 0: r = v, g = t, b = p; break;
+                case 1: r = q, g = v, b = p; break;
+                case 2: r = p, g = v, b = t; break;
+                case 3: r = p, g = q, b = v; break;
+                case 4: r = t, g = p, b = v; break;
+                case 5: r = v, g = p, b = q; break;
+            }
+            return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+        }
+
+        function render() {
+            const N = parseInt(document.getElementById('paramN').value);
+            const a = parseFloat(document.getElementById('paramA').value);
+            const zoom = parseFloat(document.getElementById('paramZoom').value);
+            const colorMode = document.getElementById('colorMode').value;
+            const gain = parseFloat(document.getElementById('paramGain').value);
             
-            document.getElementById('n-val').innerText = `${N}x${N}`;
+            // 데이터 텍스트 실시간 반영 보장
+            document.getElementById('n-display').innerText = `${N}x${N}`;
+            document.getElementById('a-display').innerText = a.toFixed(1);
+            document.getElementById('zoom-display').innerText = zoom.toFixed(2) + 'x';
+            document.getElementById('gain-display').innerText = gain.toFixed(1);
 
             const width = canvas.width;
             const height = canvas.height;
-            const imgData = ctx.createImageData(width, height);
             
-            // 격자 구멍 비율 고정
-            const holeSize = 1.2; 
+            // 화면 갱신 속도를 획기적으로 올리기 위한 2x2 픽셀 블록화 버퍼 기법 적용
+            const imgData = ctx.createImageData(width, height);
+            const data = imgData.data;
 
-            // 복잡한 팩터 제거하고, 무늬가 촘촘히 꽉 차도록 캔버스 좌표 투사율을 0.05로 최적화 고정
-            const scaleFactor = 0.05; 
+            const baseScale = 0.05;
+            const scaleFactor = baseScale / zoom;
+            const holeSize = 1.0; 
 
-            for (let py = 0; py < height; py++) {
-                const fY = (py - height / 2) * scaleFactor; 
+            for (let py = 0; py < height; py += 2) {
+                const fY = (py - height / 2) * scaleFactor;
+                const factorY = Math.PI * holeSize * fY;
+                const phaseY = Math.PI * a * fY * 0.2;
+                const interY = Math.abs(Math.sin(phaseY)) < 1e-4 ? N : Math.sin(N * phaseY) / Math.sin(phaseY);
+                const intY_sq = (interY / N) * (interY / N);
+                const sincY = sinc(factorY);
 
-                for (let px = 0; px < width; px++) {
+                for (let px = 0; px < width; px += 2) {
                     const fX = (px - width / 2) * scaleFactor;
 
-                    // 1. 단일 슬릿 포발선 함수 (Envelope) - X, Y축 회절 곱하기
+                    // 1. 논리적 맥스웰-프라운호퍼 간섭/회절 연산 (완벽한 물리 수식 식)
                     const factorX = Math.PI * holeSize * fX;
-                    const factorY = Math.PI * holeSize * fY;
-                    const envelope = Math.pow(sinc(factorX) * sinc(factorY), 2);
-
-                    // 격자 간격(a)에 비례하여 위상 주기가 선명하게 변하도록 직결
                     const phaseX = Math.PI * a * fX * 0.2;
-                    const phaseY = Math.PI * a * fY * 0.2;
-
-                    // 2. 유한 격자 다중 슬릿 간섭 정밀식
-                    const interX = Math.abs(Math.sin(phaseX)) < 1e-5 ? N : Math.sin(N * phaseX) / Math.sin(phaseX);
-                    const interY = Math.abs(Math.sin(phaseY)) < 1e-5 ? N : Math.sin(N * phaseY) / Math.sin(phaseY);
+                    const envelope = Math.pow(sinc(factorX) * sincY, 2);
+                    const interX = Math.abs(Math.sin(phaseX)) < 1e-4 ? N : Math.sin(N * phaseX) / Math.sin(phaseX);
                     
-                    let totalIntensity = envelope * Math.pow((interX / N) * (interY / N), 2);
+                    const totalIntensity = envelope * (interX / N) * (interX / N) * intY_sq;
 
-                    const idx = (py * width + px) * 4;
+                    // 기하학적 요소 계산
+                    const radialDist = Math.sqrt(fX * fX + fY * fY);
+                    const angle = Math.atan2(fY, fX);
+                    let brightness = Math.min(1.0, Math.pow(totalIntensity * gain, 0.6));
 
-                    // [X, Y축 위상차를 R, G, B 채널에 매핑하여 알록달록한 위상 무늬 생성]
-                    let r_comp = totalIntensity * (0.5 + 0.5 * Math.sin(phaseX));
-                    let g_comp = totalIntensity * (0.5 + 0.5 * Math.cos(phaseY));
-                    let b_comp = totalIntensity * (0.5 + 0.5 * Math.sin(phaseX + phaseY));
+                    let r = 0, g = 0, b = 0;
 
-                    // 감도 및 가시성 보정
-                    let r = Math.min(255, Math.pow(r_comp * gain, 0.7) * 255);
-                    let g = Math.min(255, Math.pow(g_comp * gain, 0.7) * 255);
-                    let b = Math.min(255, Math.pow(b_comp * gain, 0.7) * 255);
-
-                    // 완전 상쇄 지점(Extinction 지점) 가시화용 배경광
-                    if (totalIntensity < 0.003) {
-                        r += 12; g += 9; b += 28; 
+                    // 2. 요청하신 무지개 그라데이션 및 D4 대칭 가시화 변수 조합
+                    if (colorMode === 'spectral') {
+                        let hueFactor = (Math.sin(phaseX) * Math.sin(phaseY) + 1.0) * 0.5;
+                        let hue = (radialDist * 0.35 + hueFactor * 0.2) % 1.0;
+                        const rgb = hsvToRgb(hue, 0.85, brightness);
+                        r = rgb[0]; g = rgb[1]; b = rgb[2];
+                    } else {
+                        let d4Symmetry = Math.abs(Math.cos(4 * angle)); 
+                        r = Math.min(255, brightness * (0.3 + 0.7 * Math.sin(phaseX)) * 255);
+                        g = Math.min(255, brightness * (0.3 + 0.7 * d4Symmetry) * 255);
+                        b = Math.min(255, brightness * (0.3 + 0.7 * Math.cos(phaseY)) * 255);
                     }
 
-                    imgData.data[idx] = r;
-                    imgData.data[idx + 1] = g;
-                    imgData.data[idx + 2] = b;
-                    imgData.data[idx + 3] = 255;
+                    // 상쇄 영역 기저광 보정
+                    if (totalIntensity < 0.002) {
+                        let baseLight = (0.5 + 0.5 * Math.sin(4 * angle)) * 5;
+                        r += baseLight; g += baseLight; b += 18 + baseLight;
+                    }
+
+                    // 2x2 픽셀 블록에 데이터 고속 전사 (성능 대폭 향상 버그 해결 핵심)
+                    for (let dy = 0; dy < 2; dy++) {
+                        for (let dx = 0; dx < 2; dx++) {
+                            if (px + dx < width && py + dy < height) {
+                                const idx = ((py + dy) * width + (px + dx)) * 4;
+                                data[idx] = r;
+                                data[idx + 1] = g;
+                                data[idx + 2] = b;
+                                data[idx + 3] = 255;
+                            }
+                        }
+                    }
                 }
             }
             ctx.putImageData(imgData, 0, 0);
         }
 
-        updateSimulation();
+        // 이벤트 리스너 통합 바인딩 (수치 먹통 버그 완벽 제어)
+        const controls = ['paramN', 'paramA', 'paramZoom', 'colorMode', 'paramGain'];
+        controls.forEach(id => {
+            document.getElementById(id).addEventListener('input', render);
+            document.getElementById(id).addEventListener('change', render);
+        });
+
+        // 초기 기동
+        render();
     </script>
 </body>
 </html>
