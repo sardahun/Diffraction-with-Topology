@@ -96,32 +96,27 @@
         const canvas = document.getElementById('diffractionCanvas');
         const ctx = canvas.getContext('2d');
 
-        // Sinc 함수 정의 (정밀한 회절 수식용)
+        // Sinc 함수 정의
         function sinc(x) {
             if (Math.abs(x) < 1e-8) return 1.0;
             return Math.sin(x) / x;
         }
 
-        // 역공간 주파수 및 위상차를 조화 함수 기반 RGB 채널로 인코딩하는 무지개 매핑 함수
-        function phaseToRainbowRGB(amplitude, x, y) {
-            // 파동의 각도(위상 반전 각도 계산 변수) 추출
-            // 중심으로부터의 주파수 반경(r)과 공간 구조 반영
-            const r = Math.sqrt(x*x + y*y);
-            const angle = Math.atan2(y, x);
-
-            // 보고서의 '위상 반전(Phase Flip)' 구현: 
-            // 복소 진폭 부호(Sign)가 음수(-)로 바뀔 때 위상을 180도(pi) 회전 가산
-            let basePhase = r * 1.8 + angle;
-            if (amplitude < 0) {
-                basePhase += Math.PI; 
+        // 보고서 기반: 고대칭점 간섭 중첩도 및 위상에 따른 정밀 무지개 매핑
+        // 회오리를 제거하고 소실점(Extinction Line) 기준 거리에 따라 대칭적으로 변조되도록 수정
+        function calculatePhysicalColor(totalAmp, phaseX, phaseY) {
+            [span_4](start_span)// 복소 진폭의 부호(Sign) 추적 -> 위상 반전(Phase Flip, pi 라디안 변동) 매핑[span_4](end_span)
+            let basePhase = (phaseX + phaseY); 
+            if (totalAmp < 0) {
+                basePhase += Math.PI; [span_5](start_span)// 소멸선을 경계로 보색 극성 반전[span_5](end_span)
             }
 
-            // RGB 가법 혼색 스펙트럼 인코딩 (무지개 그라데이션)
-            const rChannel = Math.sin(basePhase) * 127 + 128;
-            const gChannel = Math.sin(basePhase + (2 * Math.PI / 3)) * 127 + 128;
-            const bChannel = Math.sin(basePhase + (4 * Math.PI / 3)) * 127 + 128;
+            // 공간 주파수 간섭 무늬의 방향성 및 거리에 따른 주기적 색상 배치
+            const r = Math.sin(basePhase) * 127 + 128;
+            const g = Math.sin(basePhase + (2 * Math.PI / 3)) * 127 + 128;
+            const b = Math.sin(basePhase + (4 * Math.PI / 3)) * 127 + 128;
 
-            return { r: rChannel, g: gChannel, b: bChannel };
+            return { r, g, b };
         }
 
         function updateSimulation() {
@@ -145,46 +140,51 @@
             const height = canvas.height;
             const imgData = ctx.createImageData(width, height);
             
-            // 물리 상수 및 스케일링 설정
-            const holeSize = a * 0.4; // 격자 안의 정사각형 구멍 크기 (b)
+            // 물리 스케일링 전면 수정: N 증가 시 무늬가 작아지기만 하던 오류 해결
+            [span_6](start_span)// 화면 픽셀을 물리적 공간 주파수(f_X, f_Y) 영역으로 정규화 매핑[span_6](end_span)
+            const k_constant = 0.005 * (wl / 532); // 파장별 스케일 보정
+            const holeSize = a * 0.35; [span_7](start_span)// 격자 내 정사각형 구멍 크기 (b)[span_7](end_span)
 
             for (let py = 0; py < height; py++) {
-                const y = (py - height / 2) * 0.1; 
+                [span_8](start_span)// 원점 Gamma(0,0) 중심 좌표계 설정[span_8](end_span)
+                const f_Y = (py - height / 2) * k_constant; 
 
                 for (let px = 0; px < width; px++) {
-                    const x = (px - width / 2) * 0.1;
+                    const f_X = (px - width / 2) * k_constant;
 
                     let intensity = 0;
-                    let totalAmp = 0; // 부호 추적용 복소 진폭 변수 추가
+                    let totalAmp = 0;
 
-                    // 1. 단일 구멍에 의한 프라운호퍼 회절 (Envelope function)
-                    const factorX = (Math.PI * holeSize * x) / (wl * 0.1);
-                    const factorY = (Math.PI * holeSize * y) / (wl * 0.1);
-                    const singleAmp = sinc(factorX) * sinc(factorY);
+                    [span_9](start_span)// 1. 단일 구멍에 의한 프라운호퍼 회절 포발선 (Envelope Function)[span_9](end_span)
+                    const envelopeX = Math.PI * holeSize * f_X;
+                    const envelopeY = Math.PI * holeSize * f_Y;
+                    [span_10](start_span)const singleAmp = sinc(envelopeX) * sinc(envelopeY);[span_10](end_span)
+
+                    [span_11](start_span)// 2. 다중 격자 간섭 주 주기 위상 정의[span_11](end_span)
+                    const phaseX = Math.PI * a * f_X;
+                    const phaseY = Math.PI * a * f_Y;
 
                     if (mode === 'finite') {
-                        // 2-A. 유한 격자: 다중 슬릿 상쇄/보강 간섭 수학식 (부호 보존)
-                        const phaseX = (Math.PI * a * x) / (wl * 0.1);
-                        const phaseY = (Math.PI * a * y) / (wl * 0.1);
-                        
+                        // 2-A. [span_12](start_span)유한 격자 통합 방정식 (진폭 부호 완벽 보존)[span_12](end_span)
                         const interferenceX = Math.abs(Math.sin(phaseX)) < 1e-5 ? N : Math.sin(N * phaseX) / Math.sin(phaseX);
                         const interferenceY = Math.abs(Math.sin(phaseY)) < 1e-5 ? N : Math.sin(N * phaseY) / Math.sin(phaseY);
                         
-                        // 제곱을 취하기 전, 진폭의 극성(+/-) 정보를 온전히 담음
+                        [span_13](start_span)// N이 커져도 전체 에너지가 유실되거나 무늬가 작아지지 않도록 1/N 정규화 스케일 고정[span_13](end_span)
                         totalAmp = singleAmp * (interferenceX / N) * (interferenceY / N);
                         intensity = Math.pow(totalAmp, 2);
 
                     } else {
-                        // 2-B. 무한 격자 (T² 위상 구조): 라우에 조건에 위상 인코딩 동기화
-                        const unitX = (x * a) / (wl * 0.1);
-                        const unitY = (y * a) / (wl * 0.1);
+                        // 2-B. [span_14](start_span)[span_15](start_span)무한 격자 (T² 토러스 위상): 라우에 조건을 만족하는 불연속 도트 이산화[span_14](end_span)[span_15](end_span)
+                        const unitX = (f_X * a);
+                        const unitY = (f_Y * a);
                         
                         const deltaX = Math.abs(unitX - Math.round(unitX));
                         const deltaY = Math.abs(unitY - Math.round(unitY));
                         
-                        if (deltaX < 0.08 && deltaY < 0.08) {
-                            const peakX = Math.exp(-Math.pow(deltaX/0.03, 2));
-                            const peakY = Math.exp(-Math.pow(deltaY/0.03, 2));
+                        [span_16](start_span)// 라우에 정수 지점(h,k) 주변에만 디락 델타 플럭스 형성[span_16](end_span)
+                        if (deltaX < 0.05 && deltaY < 0.05) {
+                            const peakX = Math.exp(-Math.pow(deltaX/0.02, 2));
+                            const peakY = Math.exp(-Math.pow(deltaY/0.02, 2));
                             totalAmp = singleAmp * peakX * peakY;
                             intensity = Math.pow(totalAmp, 2);
                         } else {
@@ -193,18 +193,18 @@
                         }
                     }
 
-                    // 밝기(Intensity) 스케일링 및 감마 보정
-                    const brightness = Math.min(1, intensity * 2.2); 
+                    [span_17](start_span)// 감마 보정 및 인텐시티 부스팅[span_17](end_span)
+                    const brightness = Math.min(1, intensity * 2.5); 
                     
-                    // 핵심: 진폭의 극성 정보와 좌표 역공간 변수를 기반으로 무지개 색상 변환
-                    const rainbowColor = phaseToRainbowRGB(totalAmp, x, y);
+                    // 물리 기반 무지개 위상 컬러 매핑 함수 호출
+                    const physicalColor = calculatePhysicalColor(totalAmp, phaseX, phaseY);
 
-                    // 스크린 픽셀 색상 대입
+                    // 스크린 픽셀 최종 전사
                     const idx = (py * width + px) * 4;
-                    imgData.data[idx] = Math.pow(brightness, 0.7) * rainbowColor.r;     // R
-                    imgData.data[idx + 1] = Math.pow(brightness, 0.7) * rainbowColor.g; // G
-                    imgData.data[idx + 2] = Math.pow(brightness, 0.7) * rainbowColor.b; // B
-                    imgData.data[idx + 3] = 255;                                      // Alpha
+                    imgData.data[idx] = Math.pow(brightness, 0.7) * physicalColor.r;     // R
+                    imgData.data[idx + 1] = Math.pow(brightness, 0.7) * physicalColor.g; // G
+                    imgData.data[idx + 2] = Math.pow(brightness, 0.7) * physicalColor.b; // B
+                    imgData.data[idx + 3] = 255;                                        // Alpha
                 }
             }
             ctx.putImageData(imgData, 0, 0);
